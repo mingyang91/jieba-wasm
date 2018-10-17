@@ -6,3 +6,4 @@ cmake-build-debug
 target
 www/node_modules
 wasm-pack.log
+.idea
