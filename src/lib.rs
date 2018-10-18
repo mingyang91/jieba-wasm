@@ -84,17 +84,18 @@ impl Jieba {
     pub fn load_dict(&mut self, dict: String) -> js_sys::Promise {
         let this = self.inner.clone();
         let future = NextTick::new()
-            .and_then(move |_| {
-                this
+            .then(move |_| {
+                let res = this
                     .lock()
                     .unwrap()
                     .load_dict(&mut dict.as_bytes());
-                ok(())
-            })
-            .map(|_| JsValue::TRUE)
-            .map_err(|error| {
-                let js_error = js_sys::Error::new(&format!("uh oh! {:?}", error));
-                JsValue::from(js_error)
+                match res {
+                    Ok(()) => ok(JsValue::TRUE),
+                    Err(error) => {
+                        let js_error = js_sys::Error::new(&format!("uh oh! {:?}", error));
+                        err(JsValue::from(js_error))
+                    }
+                }
             });
         future_to_promise(future)
     }
@@ -103,22 +104,20 @@ impl Jieba {
     pub fn cut(&self, sentence: String, hmm: Option<bool>) -> js_sys::Promise {
         let this = self.inner.clone();
         let future = NextTick::new()
+            .map_err(|_| JsValue::NULL)
             .and_then(move |_| {
                 let words = this
                     .lock()
                     .unwrap()
                     .cut(&sentence, hmm.unwrap_or(false));
-                let parsed = JsValue::from_serde(&words);
-                let res = match parsed {
-                    serde::export::Err(error) => {
+                match JsValue::from_serde(&words) {
+                    Ok(res) => ok(res),
+                    Err(error) => {
                         let js_error = js_sys::Error::new(&format!("uh oh! {:?}", error));
                         err(JsValue::from(js_error))
-                    },
-                    serde::export::Ok(val) => ok(val),
-                };
-                res
+                    }
+                }
             });
-
         future_to_promise(future)
     }
 }
