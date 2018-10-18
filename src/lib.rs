@@ -5,14 +5,19 @@ extern crate wasm_bindgen;
 extern crate wasm_bindgen_futures;
 extern crate web_sys;
 extern crate jieba_rs;
+extern crate serde;
+extern crate serde_json;
 
 mod utils;
 
 use cfg_if::cfg_if;
 use futures::{Async, Future, Poll};
+use futures::future::*;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::future_to_promise;
 use wasm_bindgen_futures::JsFuture;
+use std::sync::Arc;
+use std::sync::Mutex;
 
 cfg_if! {
     // When the `wee_alloc` feature is enabled, use `wee_alloc` as the global
@@ -62,25 +67,28 @@ impl Future for NextTick {
 
 #[wasm_bindgen]
 pub struct Jieba {
-    instance: jieba_rs::Jieba
+    inner: Arc<Mutex<jieba_rs::Jieba>>,
 }
 
 #[wasm_bindgen]
 impl Jieba {
-    #[wasm_bindgen]
+    #[wasm_bindgen(constructor)]
     pub fn new () -> Jieba {
         Jieba {
-            instance: jieba_rs::Jieba::new()
+            inner: Arc::new(Mutex::new(jieba_rs::Jieba::empty())),
         }
     }
 
     #[wasm_bindgen]
-    pub fn load_dict(&mut self, in_dict: &mut [u8]) -> js_sys::Promise {
-        let dict: &[u8] = &*in_dict;
-        let future = futures::future::ok::<(), ()>(())
+    pub fn load_dict(&mut self, dict: String) -> js_sys::Promise {
+        let this = self.inner.clone();
+        let future = NextTick::new()
             .and_then(move |_| {
-                self.instance.load_dict(&mut &*dict);
-                Ok(())
+                this
+                    .lock()
+                    .unwrap()
+                    .load_dict(&mut dict.as_bytes());
+                ok(())
             })
             .map(|_| JsValue::TRUE)
             .map_err(|error| {
@@ -91,13 +99,26 @@ impl Jieba {
     }
 
     #[wasm_bindgen]
-    pub fn cut(&self, sentence: String, hmm: Option<bool>) -> Box<[JsValue]> {
-        let words = self.instance.cut(&sentence, hmm.unwrap_or(false));
-        words
-            .iter()
-            .map(|&x| JsValue::from(x))
-            .collect::<Vec<_>>()
-            .into_boxed_slice()
+    pub fn cut(&self, sentence: String, hmm: Option<bool>) -> js_sys::Promise {
+        let this = self.inner.clone();
+        let future = NextTick::new()
+            .and_then(move |_| {
+                let words = this
+                    .lock()
+                    .unwrap()
+                    .cut(&sentence, hmm.unwrap_or(false));
+                let parsed = JsValue::from_serde(&words);
+                let result = match parsed {
+                    serde::export::Err(error) => {
+                        let js_error = js_sys::Error::new(&format!("uh oh! {:?}", error));
+                        err(JsValue::from(js_error))
+                    },
+                    serde::export::Ok(val) => ok(val),
+                };
+                result
+            });
+
+        future_to_promise(future)
     }
 }
 
