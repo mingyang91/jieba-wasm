@@ -18,6 +18,7 @@ use wasm_bindgen_futures::future_to_promise;
 use wasm_bindgen_futures::JsFuture;
 use std::sync::Arc;
 use std::sync::Mutex;
+use std::result::Result::Ok;
 
 cfg_if! {
     // When the `wee_alloc` feature is enabled, use `wee_alloc` as the global
@@ -108,14 +109,14 @@ impl Jieba {
                     .unwrap()
                     .cut(&sentence, hmm.unwrap_or(false));
                 let parsed = JsValue::from_serde(&words);
-                let result = match parsed {
+                let res = match parsed {
                     serde::export::Err(error) => {
                         let js_error = js_sys::Error::new(&format!("uh oh! {:?}", error));
                         err(JsValue::from(js_error))
                     },
                     serde::export::Ok(val) => ok(val),
                 };
-                result
+                res
             });
 
         future_to_promise(future)
